@@ -33,8 +33,32 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout
+      - name: Checkout (LFS pointers only)
         uses: actions/checkout@v4
+        # NOTE: lfs is intentionally OFF here. We fetch LFS objects below
+        # via a cache-aware step to save bandwidth across runs.
+
+      - name: Build LFS pointer manifest (for cache key)
+        run: |
+          git lfs ls-files --long | sort > .lfs-manifest
+          echo "--- LFS files tracked: ---"
+          cat .lfs-manifest
+
+      - name: Restore LFS object cache
+        id: lfs-cache
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: ${{ runner.os }}-lfs-${{ hashFiles('.lfs-manifest') }}
+          restore-keys: |
+            ${{ runner.os }}-lfs-
+
+      - name: Pull missing LFS objects
+        run: |
+          git lfs pull
+          echo "--- post-pull sizes ---"
+          du -sh .git/lfs 2>/dev/null || true
+          find nnUnet_paths -name "*.pth" -exec ls -lh {} \;
 
       - name: Free up runner disk space
         run: |
@@ -166,10 +190,25 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Checkout (at the new tag)
+      - name: Checkout at the new tag (LFS pointers only)
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.bump-tag.outputs.new_tag }}
+
+      - name: Build LFS pointer manifest (for cache key)
+        run: git lfs ls-files --long | sort > .lfs-manifest
+
+      - name: Restore LFS object cache
+        id: lfs-cache
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: ${{ runner.os }}-lfs-${{ hashFiles('.lfs-manifest') }}
+          restore-keys: |
+            ${{ runner.os }}-lfs-
+
+      - name: Pull missing LFS objects
+        run: git lfs pull
 
       - name: Free up runner disk space
         run: |

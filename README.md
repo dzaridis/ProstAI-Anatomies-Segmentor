@@ -106,15 +106,16 @@ Exit code `0` if all cases succeeded, `1` if any case failed (per-case status in
 
 ## Citing
 
-If you use this tool, please cite the underlying methodology:
+If you use this tool, please cite the underlying methodologies:
 
-1. Zaridis D. I., Mylona E., Tachos N. S., Kalantzopoulos C., Tsiknakis N., Marias K., Tsiknakis M., Fotiadis D. I. *Region-adaptive magnetic resonance image enhancement for improving CNN-based segmentation of the prostate and prostatic zones.* Biomedical Signal Processing and Control, 2024. <https://www.sciencedirect.com/science/article/pii/S1746809424002453>
+1. D. Zaridis, E. Mylona, N. Tachos, K. Marias, M. Tsiknakis and D. I. Fotiadis, "Fine-tuned feature selection to improve prostate segmentation via a fully connected meta-learner architecture," 2022 IEEE-EMBS International Conference on Biomedical and Health Informatics (BHI), Ioannina, Greece, 2022, pp. 01-04, doi: 10.1109/BHI56158.2022.9926929. keywords: {Deep learning;Sensitivity;Magnetic resonance imaging;Glands;Feature extraction;Complexity theory;Prostate cancer;Prostate Segmentation;Deep Learning;Ensembling;Fine Tuning},
 
-2. Zaridis D., Mylona E., Tachos N., Pezoulas V. C., Grigoriadis G., Tsiknakis N., Marias K., Tsiknakis M., Fotiadis D. I. *Region-adaptive magnetic resonance image enhancement for improving CNN-based segmentation of the prostate.* IEEE EMBC 2022. <https://ieeexplore.ieee.org/abstract/document/9926929>
+
+2. Zaridis, Dimitrios I., et al. "ResQu-Net: Effective prostate’s peripheral zone segmentation leveraging the representational power of attention-based mechanisms." Biomedical Signal Processing and Control 93 (2024): 106187.
 
 ## Authors
 
-**Dimitrios Zaridis** *(corresponding)* · `dimzaridis@gmail.com` · M.Eng, PhD candidate, NTUA
+**Dimitrios Zaridis** *(corresponding)* · `dimzaridis@gmail.com` · PhD
 Charalampos Kalantzopoulos · Eugenia Mylona, PhD · Nikolaos S. Tachos, PhD
 **Dimitrios I. Fotiadis**, Professor of Biomedical Technology, University of Ioannina
 
@@ -122,6 +123,3 @@ Charalampos Kalantzopoulos · Eugenia Mylona, PhD · Nikolaos S. Tachos, PhD
 
 This project is licensed under the **European Union Public Licence v. 1.2 (EUPL-1.2)** — see [`LICENSE.md`](LICENSE.md) for the full text. Canonical: <https://joinup.ec.europa.eu/collection/eupl/>
 
-## Acknowledgement
-
-Packaged for the **EUCAIM** (European Cancer Imaging) federated processing infrastructure following the *Research Software Packaging for FAIR and Reproducible Analysis in EUCAIM* guide v1.2.
