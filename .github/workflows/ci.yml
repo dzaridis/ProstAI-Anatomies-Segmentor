@@ -80,7 +80,7 @@ jobs:
           load: true
           tags: prostate-zone-segmentor:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min,ignore-error=true
 
       - name: Smoke test — CLI help
         run: docker run --rm prostate-zone-segmentor:ci --help
@@ -288,7 +288,7 @@ jobs:
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min,ignore-error=true
 
       - name: Print pushed references
         run: |
