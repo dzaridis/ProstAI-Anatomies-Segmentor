@@ -1,20 +1,19 @@
-import os
+"""Load NIfTI inputs into a {case_id: SimpleITK.Image} dict."""
+
+from typing import Dict, List
+
 import SimpleITK as sitk
 
 
-def load_nii_gz_files(files_to_load):
+def load_nii_gz_files(records: List[dict]) -> Dict[str, sitk.Image]:
     """
-    Load .nii.gz files from a given path into a dictionary as SimpleITK 
-    objects.
-    The path can be either a directory containing .nii.gz files or a single 
-    .nii.gz file.
+    Args:
+        records: list of dicts with keys "case_id" and "nifti_path"
+                 (as produced by Utils.get_images.discover_inputs).
+    Returns:
+        {case_id: sitk.Image}
     """
-
-    nii_gz_objects = {}
-
-    # Load each file as a SimpleITK object
-    for file_path in files_to_load:
-        file_key = os.path.basename(file_path).split(".")[0]
-        nii_gz_objects[file_key] = sitk.ReadImage(file_path)
-
-    return nii_gz_objects
+    images: Dict[str, sitk.Image] = {}
+    for rec in records:
+        images[rec["case_id"]] = sitk.ReadImage(rec["nifti_path"])
+    return images

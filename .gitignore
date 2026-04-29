@@ -164,3 +164,11 @@ cython_debug/
 #.idea/
 
 # custom
+test_input_nii/
+test_output_nii/
+test_input_dcm/
+test_output_dcm/
+test_output_dcm_all/
+ci_input/
+ci_output/
+.claude/

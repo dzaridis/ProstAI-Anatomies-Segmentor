@@ -1,96 +1,127 @@
-# Branches Description
-## main  
-### You can directly create the docker image by cloning the branch and execute docker build. This refers only for the Segmentor model.   
+<div align="center">
 
-1. INPUT VOLUME: "/Pats"  
-2. OUTPUT VOLUME: "/Outputs"
+# ProstAI Anatomies Segmentor
 
-### If you wish to run the whole docker compose just clone the repo and run
-```Bash
-docker compose up --build
-```
-1. You need to have 3 Folders in the parent folder which is the project  
-   a. "Pats": There the T2-weighted NIfTI files are stored. Ideally you wish the name of each NIfTI to be the patient's ID  
-   b. "Outputs": The output masks are stored there as described in the "he structure of the outcome is the following" section  
-   c. "dicom_outputs": This is where all the dicom outputs are persisted for orthanc to read them and visualize them via OHIF viewer  
-- You can find the Orthanc DICOM server at [localhost.8042](http://localhost:8042/)  
-- You can find the OHIF DICOM Viewer at [localhost.3000](http://localhost:3000/)  
+**Whole-gland & zonal prostate segmentation from T2-weighted MRI.**
+Cascaded nnU-Net v2 · EUCAIM-ready · Single-container, GPU-or-CPU.
 
-## DesktopAPP  
+[![License: EUPL-1.2](https://img.shields.io/badge/License-EUPL_1.2-1A5FB4.svg)](LICENSE.md)
+[![Python 3.9](https://img.shields.io/badge/Python-3.9-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![nnU-Net v2.2.1](https://img.shields.io/badge/nnU--Net-v2.2.1-EF4444.svg)](https://github.com/MIC-DKFZ/nnUNet)
+[![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
+[![EUCAIM](https://img.shields.io/badge/EUCAIM-processing--tools-FF6B35.svg)](https://cancerimage.eu/)
 
-Execute the following command. Then 2 Windows prompt will open  
-1. The first one is the input NIfTI folder -> Select a folder where the NIfTI T2-Weighted MR Prostate Volume lie in a NIfTI format (.nii.gz)
-2. The second one is the output folder you wish to extract the segmentations.
-```Bash
-pip install -r requirements.txt
-python __main__.py
-```
+</div>
 
-## The structure of the outcome is the following    
-- The output folder  
-![The structure of the folder](https://github.com/dzaridis/MRI-Prostate-Gland-and-Zone-Segmentor/blob/main/Materials/photo1.jpg)
+---
 
-- The structure of the 2 json dictionaries that are references of the segmentation for each patient.  
+A two-stage **nnU-Net v2** pipeline that segments the **whole gland (WG)**, **peripheral zone (PZ)** and **transition zone (TZ)** of the prostate from axial T2-weighted MRI. Packaged as a single, EUCAIM-compliant Docker container — read-only input mount, writable output mount, non-root user (UID 2323), stdout/stderr logging, no network at runtime.
 
-  1. The first dictionary (ResampledToOriginalSegmentationPaths.json) corresponds to the outputs that are resampled to the initial input
-  2. The second dictionary (nnOutputSegmentationPaths.json) corresponds to the outputs that are extracted directly from the nnUNet in 0.5x0.5x3.0 voxel spacing
-   
-wg_binary: Prostate's whole gland binary mask  
-wg_probs: Prostate's whole gland probabilities 
-pz_binary: Prostate's Peripheral zone binary mask    
-pz_probs: Prostate's Peripheral zone probabilities    
-tz_binary: Prostate's Transition zone binary mask    
-tz_binary: Prostate's Peripheral zone probabilities    
-![Structure of the dictionaries with paths](https://github.com/dzaridis/MRI-Prostate-Gland-and-Zone-Segmentor/blob/main/Materials/photo2.jpg)
+| | |
+|---|---|
+| **Image** | `harbor.eucaim.cancerimage.eu/processing-tools/prostate-zone-segmentor` |
+| **Modality / Anatomy** | T2-weighted MRI · Prostate (WG, PZ, TZ) |
+| **Input** | DICOM (EUCAIM CDM) **or** flat NIfTI |
+| **Output** | NIfTI binary masks · optional probability maps · optional DICOM-SEG · `results.json` |
+| **License** | [EUPL-1.2](LICENSE.md) |
 
-## Each patient will contain the following folder and each folder the following NIfTI files. Please use the json files to navigate propertly. THEY ARE MESS!  
-![Folders within each patient](https://github.com/dzaridis/MRI-Prostate-Gland-and-Zone-Segmentor/blob/main/Materials/photo3.jpg)  
-![Files within each patient's subfolders](https://github.com/dzaridis/MRI-Prostate-Gland-and-Zone-Segmentor/blob/main/Materials/photo4.jpg)  
-### The structure of the 2 json dictionaries that are references of the segmentation for each patient.  
+## Quick start
 
+```bash
+docker pull harbor.eucaim.cancerimage.eu/processing-tools/prostate-zone-segmentor:<tag>
 
-# Prostate Whole Gland and Zone automated segmentor
+# DICOM input (EUCAIM CDM layout)
+docker run --rm --gpus all \
+  -v /path/to/dicom:/input:ro -v /path/to/out:/output \
+  harbor.eucaim.cancerimage.eu/processing-tools/prostate-zone-segmentor:<tag> \
+    --input /input --output /output
 
-A Python module to perform Prostate and zonal segmentation from T2 Weighted MR images
+# Flat NIfTI input
+docker run --rm --gpus all \
+  -v /path/to/niftis:/input:ro -v /path/to/out:/output \
+  harbor.eucaim.cancerimage.eu/processing-tools/prostate-zone-segmentor:<tag> \
+    --input /input --output /output --input-format nifti
 
-
-## Usage/Examples
-
-- To run the experiments you first need to create a "Pats" folder in the workspace where all the NIfTI T2-weighted MR files are located
-
-- Also Create an "Outputs" folder where the results are going to be stored. The Outputs folder contains subfolders for each patient with the patient name, while in each patient subfolder, 2 more folders are created containing the Original extracted by nnUnet segmentations and resampled to the space of the input NIfTI files segmentations. Further 
-```python
-nnOutputSegmentationPaths.json 
-#file containing the paths for each patient to the segmentations as extracted by nnUnet in 0.5X0.5X3 mm
-```
-```python
-ResampledToOriginalSegmentationPaths.json 
-#file containing the paths for each patient to the segmentations with the same spacing as the original images
+# CPU-only (≈30× slower)
+docker run --rm \
+  -v /path/to/input:/input:ro -v /path/to/out:/output \
+  harbor.eucaim.cancerimage.eu/processing-tools/prostate-zone-segmentor:<tag> \
+    --input /input --output /output --device cpu
 ```
 
-## Execution
+Sample data and one-line test commands live in [`examples/`](examples/).
+Local Windows + CPU walkthrough: [`LOCAL_TESTING_WINDOWS_CPU.md`](LOCAL_TESTING_WINDOWS_CPU.md).
 
-To run the script type the following in the Repo's workspace
-```Bash
-python __main__.py
+## Inputs
+
+**EUCAIM CDM (preferred):**
+
+```
+/input/<subjectId>/<studyId>/<seriesId>/*.dcm
+/input/index.json   (optional)
 ```
 
-## Execute as docker
+**Flat NIfTI (testing):**
 
-A docker image is available for anyone to use at the following repository
-current version:1.5
-https://hub.docker.com/repository/docker/dimzaridis/prostai-segmentor/general
+```
+/input/<case_id>.nii.gz
+```
+
+## Outputs
+
+```
+/output/
+├── results.json                          ← machine-readable run index
+└── <subjectId>/<studyId>/
+    ├── wg_binary.nii.gz                  ← whole-gland mask (input grid)
+    ├── pz_binary.nii.gz                  ← peripheral-zone mask
+    ├── tz_binary.nii.gz                  ← transition-zone mask
+    ├── {wg,pz,tz}_probs.nii.gz           ← (--save-probs)
+    └── prostate_zones_seg.dcm            ← multi-segment DICOM-SEG (DICOM input)
+```
+
+Exit code `0` if all cases succeeded, `1` if any case failed (per-case status in `results.json`).
+
+## CLI
+
+| Flag | Default | Description |
+|---|---|---|
+| `--input`, `-i` | *required* | Read-only input directory. |
+| `--output`, `-o` | *required* | Writable output directory. |
+| `--input-format` | `auto` | `auto` \| `dicom` \| `nifti`. |
+| `--save-probs` | off | Also write `*_probs.nii.gz`. |
+| `--save-dicom-seg` / `--no-save-dicom-seg` | on | Toggle DICOM-SEG export. |
+| `--device` | `auto` | `auto` \| `cuda` \| `cpu`. |
+| `--log-level` | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR`. |
+
+## Requirements
+
+| | Minimum | Recommended |
+|---|---|---|
+| **GPU** | NVIDIA, CC ≥ 6.0, 8 GB VRAM (CUDA 11.7) | 12 GB+ VRAM |
+| **CPU** | 4 cores | 8 cores |
+| **RAM** | 8 GB | 16 GB |
+| **Disk** | 10 GB | 20 GB |
+| **Network** | none at runtime | — |
+
+## Citing
+
+If you use this tool, please cite the underlying methodology:
+
+1. Zaridis D. I., Mylona E., Tachos N. S., Kalantzopoulos C., Tsiknakis N., Marias K., Tsiknakis M., Fotiadis D. I. *Region-adaptive magnetic resonance image enhancement for improving CNN-based segmentation of the prostate and prostatic zones.* Biomedical Signal Processing and Control, 2024. <https://www.sciencedirect.com/science/article/pii/S1746809424002453>
+
+2. Zaridis D., Mylona E., Tachos N., Pezoulas V. C., Grigoriadis G., Tsiknakis N., Marias K., Tsiknakis M., Fotiadis D. I. *Region-adaptive magnetic resonance image enhancement for improving CNN-based segmentation of the prostate.* IEEE EMBC 2022. <https://ieeexplore.ieee.org/abstract/document/9926929>
 
 ## Authors
 
-- [Dimitrios Zaridis](dimzaridis@gmail.com) * corresponding, M.Eng, PhD Student @National Technical University of Athens
-- Charalampos Kalantzopoulos, M.Sc
-- Eugenia Mylona, Ph.D
-- Nikolaos S. Tachos, Ph.D
-- Dimitrios I. Fotiadis, Professor of Biomedical Technology, university of Ioannina
+**Dimitrios Zaridis** *(corresponding)* · `dimzaridis@gmail.com` · M.Eng, PhD candidate, NTUA
+Charalampos Kalantzopoulos · Eugenia Mylona, PhD · Nikolaos S. Tachos, PhD
+**Dimitrios I. Fotiadis**, Professor of Biomedical Technology, University of Ioannina
 
-## Badges
+## License
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
+This project is licensed under the **European Union Public Licence v. 1.2 (EUPL-1.2)** — see [`LICENSE.md`](LICENSE.md) for the full text. Canonical: <https://joinup.ec.europa.eu/collection/eupl/>
 
-![Python](https://img.shields.io/badge/Python-3.9.18-green)
+## Acknowledgement
+
+Packaged for the **EUCAIM** (European Cancer Imaging) federated processing infrastructure following the *Research Software Packaging for FAIR and Reproducible Analysis in EUCAIM* guide v1.2.

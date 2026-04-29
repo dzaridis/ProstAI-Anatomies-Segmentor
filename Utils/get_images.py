@@ -1,126 +1,157 @@
-''' 
-Read dicom directories and nii.gz files from given parent directory.
-Converts dcm images to nii.gz files.
-Ignores directories with 1 dcm file. Multi-frame not supported.
-'''
+"""
+Discover input studies under an input directory and return structured records.
+
+Two layouts are supported:
+  1. EUCAIM CDM (preferred):
+        <input_dir>/<subjectId>/<studyId>/<seriesId>/*.dcm
+        <input_dir>/index.json   (optional)
+  2. Flat NIfTI (back-compat / testing):
+        <input_dir>/*.nii.gz
+
+The function returns a list of records:
+    {
+      "case_id":      str,   # used as filename stem in outputs
+      "subject_id":   str,
+      "study_id":     str,
+      "nifti_path":   str,   # NIfTI path the segmentor will read
+      "source_dicom_dir": Optional[str],   # set only when the input was DICOM
+    }
+"""
+
+import json
+import logging
 import os
-from shutil import rmtree
-from typing import List, Tuple, Dict
+import tempfile
 from pathlib import Path
-from warnings import warn
-import yaml
-from SimpleITK import ImageSeriesReader
-from SimpleITK import WriteImage
-from SimpleITK import ImageSeriesReader_GetGDCMSeriesFileNames as GetGDCMSeriesFileNames
+from typing import List, Dict, Optional
 
-def read_dcm_images( image_list: Tuple[Path] ):
-    ''' A simple conversion from dcm dataset to sitk object'''
+from SimpleITK import (
+    ImageSeriesReader,
+    WriteImage,
+    ImageSeriesReader_GetGDCMSeriesFileNames as GetGDCMSeriesFileNames,
+)
 
-    reader= ImageSeriesReader()
-    reader.SetFileNames(image_list)
+LOGGER = logging.getLogger(__name__)
+
+
+def _read_dcm_series(dicom_files):
+    reader = ImageSeriesReader()
+    reader.SetFileNames(dicom_files)
     reader.MetaDataDictionaryArrayUpdateOn()
     reader.LoadPrivateTagsOn()
-    itk_image = reader.Execute()
+    return reader.Execute()
 
-    for i in reader.GetMetaDataKeys(0):
-        if "ITK" not in i:
 
-            tag_value = reader.GetMetaData(0,i)
-        try:
-            itk_image.SetMetaData(i, tag_value)
-        except TypeError:
-            pass
+def _convert_dicom_dir_to_nifti(dicom_dir: str, scratch_dir: str, case_id: str) -> Optional[str]:
+    files = GetGDCMSeriesFileNames(dicom_dir)
+    if len(files) <= 1:
+        LOGGER.warning("Skipping %s: needs ≥2 DICOM files (multi-frame not supported).", dicom_dir)
+        return None
+    image = _read_dcm_series(files)
+    out_path = os.path.join(scratch_dir, f"{case_id}.nii.gz")
+    WriteImage(image, out_path)
+    return out_path
 
-    return itk_image
 
-def convert_dicoms(dir_path = List[Path]) -> Dict[str,str]:
-    ''' 
-    Read available dicom directories and stored them in .nii.gz
-    '''
-
-    if not dir_path:
-        print( "No dicom files found. Exit!")
-
-    dicom_dict = {}
-    for dcm_path in dir_path:
-
-        path_split = dcm_path.split(os.sep)
-        input_dir = path_split[0]
-        output_name = "_".join(path_split[1:])+".nii.gz"
-
-        os.makedirs(os.path.join(input_dir,"_gen_dicom2nifti"), exist_ok= True )
-
-        destination = os.path.join(input_dir, "_gen_dicom2nifti", output_name)
-
-        spatial_ordered_dcm_files = GetGDCMSeriesFileNames(dcm_path)
-
-        if len(spatial_ordered_dcm_files) == 1:
-            warn(f"{dcm_path} has one dcm. Multi-frame dicom files are not supported. Skip!")
-            continue
-
-        itk_img = read_dcm_images( spatial_ordered_dcm_files )
-
-        WriteImage( itk_img, destination)
-
-        dicom_dict[dcm_path] = {
-            "destination_nifti": destination,
-            "source_type": "dcm"
-        }
-
-    return dicom_dict
-
-def get_images(input_dir:Path)-> list:
-    ''' 
-    Read .dcm and .nii.gz files inside the given parent directory.
-    dcm files are separated by directory and converted to nifti images.
-    '''
-
-    dcm_dirs = []
-    nii_files = []
-
-    # Delete directory with generated niftis if already exist
-    destination = os.path.join(input_dir, "_gen_dicom2nifti")
-    if os.path.exists(destination):
-        rmtree(destination)
-
-    for dirpath,_,files in os.walk(input_dir):
-
-        for file in files:
-
-            if file.endswith(".nii.gz"):
-
-                relative_path = os.path.join( dirpath, file)
-
-                nii_files.append( relative_path )
-
-            if file.endswith(".dcm"):
-
-                if dirpath not in dcm_dirs:
-                    dcm_dirs.append(dirpath)
+def _detect_dicom_studies(input_dir: str) -> List[Dict[str, str]]:
+    """Walks input_dir; emits a record per series directory containing .dcm files."""
+    records = []
+    seen = set()
+    for dirpath, _, files in os.walk(input_dir):
+        if any(f.lower().endswith(".dcm") for f in files):
+            if dirpath in seen:
                 continue
+            seen.add(dirpath)
+            rel = os.path.relpath(dirpath, input_dir).split(os.sep)
+            if len(rel) >= 3:
+                subject_id, study_id, series_id = rel[0], rel[1], rel[-1]
+            elif len(rel) == 2:
+                subject_id, study_id, series_id = rel[0], rel[1], rel[1]
+            else:
+                subject_id = study_id = series_id = rel[-1] if rel and rel[0] != "." else "unknown"
+            records.append(
+                {
+                    "subject_id": subject_id,
+                    "study_id": study_id,
+                    "series_id": series_id,
+                    "dicom_dir": dirpath,
+                }
+            )
+    return records
 
-    if len(dcm_dirs) + len(nii_files) == 0:
-        raise AttributeError("No .nii.gz or .dcm file was found")
 
-    dicom_files = convert_dicoms ( dcm_dirs )
+def _detect_niftis(input_dir: str) -> List[Dict[str, str]]:
+    records = []
+    for dirpath, _, files in os.walk(input_dir):
+        for f in files:
+            if f.endswith(".nii.gz"):
+                stem = f[: -len(".nii.gz")]
+                records.append(
+                    {
+                        "subject_id": stem,
+                        "study_id": stem,
+                        "nifti_path": os.path.join(dirpath, f),
+                    }
+                )
+    return records
 
-    patient_dict = {}
 
-    for nii in nii_files:
-        patient_dict[nii] = {
-            "destination_nifti": nii,
-            "source_type": "nii.gz"
-        }
+def discover_inputs(
+    input_dir: str,
+    input_format: str = "auto",
+    scratch_dir: Optional[str] = None,
+) -> List[Dict[str, Optional[str]]]:
+    """
+    Returns a list of input records (see module docstring).
 
-    patient_dict.update(dicom_files)
+    Args:
+        input_dir:     read-only mount path (EUCAIM convention).
+        input_format:  "dicom" | "nifti" | "auto".
+        scratch_dir:   writable directory for DICOM→NIfTI conversion artefacts.
+                       Created under tempfile.gettempdir() if not provided.
+    """
+    if not os.path.isdir(input_dir):
+        raise NotADirectoryError(f"Input directory not found: {input_dir}")
 
-    with open( os.path.join(input_dir,'patient_dict.yaml'), "w", encoding= "utf-8") as yfile:
-        yaml.safe_dump(patient_dict, yfile, indent=4, sort_keys=False)
+    if scratch_dir is None:
+        scratch_dir = tempfile.mkdtemp(prefix="prostai_input_")
+    os.makedirs(scratch_dir, exist_ok=True)
 
-    patient_list = [ value["destination_nifti"] for value in patient_dict.values() ]
+    fmt = input_format.lower()
+    records: List[Dict[str, Optional[str]]] = []
 
-    return patient_list
+    if fmt in ("dicom", "auto"):
+        for rec in _detect_dicom_studies(input_dir):
+            case_id = f"{rec['subject_id']}_{rec['study_id']}_{rec['series_id']}"
+            nifti_path = _convert_dicom_dir_to_nifti(rec["dicom_dir"], scratch_dir, case_id)
+            if nifti_path is None:
+                continue
+            records.append(
+                {
+                    "case_id": case_id,
+                    "subject_id": rec["subject_id"],
+                    "study_id": rec["study_id"],
+                    "nifti_path": nifti_path,
+                    "source_dicom_dir": rec["dicom_dir"],
+                }
+            )
 
-if __name__ == "__main__":
+    if fmt in ("nifti", "auto") and not records:
+        for rec in _detect_niftis(input_dir):
+            records.append(
+                {
+                    "case_id": rec["subject_id"],
+                    "subject_id": rec["subject_id"],
+                    "study_id": rec["study_id"],
+                    "nifti_path": rec["nifti_path"],
+                    "source_dicom_dir": None,
+                }
+            )
 
-    get_images("Pats")
+    if not records:
+        raise FileNotFoundError(
+            f"No DICOM series or .nii.gz files found in {input_dir} (format={input_format})."
+        )
+
+    LOGGER.info("Discovered %d input case(s) in %s.", len(records), input_dir)
+    return records

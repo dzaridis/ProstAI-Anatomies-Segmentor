@@ -367,11 +367,16 @@ def array2bits(seg_dict:Dict[str,dict])->Union[np.ndarray,str]:
 
     return bit_frames, nframes
 
-def nifti2dicomseg(seg_dir_path:Path, t2_path:Path, single_seg:str=""):
-    ''' 
-    Convert nifti segmentations to dcm files.
-    Each segmentation file will have their own dcm file. Also, a multi-frame
-    dcm file will be available with no overlaps!
+def nifti2dicomseg(seg_dir_path:Path, t2_path:Path, output_path:Path=None, single_seg:str=""):
+    '''
+    Convert nifti segmentations to a multi-segment DICOM-SEG file.
+
+    Args:
+        seg_dir_path: directory containing wg_binary.nii.gz, pz_binary.nii.gz, tz_binary.nii.gz
+        t2_path:      directory of source DICOM series (provides referencing metadata)
+        output_path:  full output path for the .dcm file. If None, falls back to legacy
+                      "dicom_outputs/<patient>/<study>/segmentations/..." layout.
+        single_seg:   "" (multi-segment) | "wg" | "pz" | "tz"
     '''
 
     seg_ds = Dataset()
@@ -529,7 +534,6 @@ def nifti2dicomseg(seg_dir_path:Path, t2_path:Path, single_seg:str=""):
         for zone,value in seg_dict.items():
 
             if value["array"] is None:
-                total_failed += 1
                 continue
 
             segment_sequence.append(structures_dictionary(zone,label_count))
@@ -557,19 +561,18 @@ def nifti2dicomseg(seg_dir_path:Path, t2_path:Path, single_seg:str=""):
     seg_ds.ContentDescription = "NNUnet Prostate Zone Segmentation"
     seg_ds.ContentCreatorName = "Dimitris Player"
 
-    output = os.path.join(
-        "dicom_outputs",
-        patient_id,
-        study_uid,
-        "segmentations"
-    )
-
-    os.makedirs(output, exist_ok=True)
-
-    if not single_seg:
-        dcmwrite(os.path.join(output,'prostate_zones.dcm'), seg_ds, write_like_original=False)
+    if output_path is None:
+        output_dir = os.path.join("dicom_outputs", patient_id, study_uid, "segmentations")
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(
+            output_dir,
+            "prostate_zones.dcm" if not single_seg else f"{single_seg}.dcm",
+        )
     else:
-        dcmwrite(os.path.join(output,f'{single_seg}.dcm'), seg_ds, write_like_original=False)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    dcmwrite(output_path, seg_ds, write_like_original=False)
+    return output_path
 
 def keep_same_direction(dcm_image:Dataset, sitk_image:sitk.Image)->sitk.Image:
     ''' 

@@ -1,0 +1,91 @@
+# EUCAIM CommandLineTool descriptor (CWL v1.2)
+# See EUCAIM Software Packaging Guide v1.2 §6 (Option 2).
+cwlVersion: v1.2
+class: CommandLineTool
+id: prostate-zone-segmentor
+label: Prostate Whole-Gland and Zonal Segmentor
+doc: |
+  Cascaded nnU-Net v2 model that segments the whole gland (WG), peripheral
+  zone (PZ) and transition zone (TZ) of the prostate from T2-weighted MRI.
+  Accepts a directory of DICOM series (EUCAIM CDM layout) or a directory of
+  .nii.gz files. Writes per-case binary masks (and optionally probability
+  maps and a multi-segment DICOM-SEG) plus a results.json index.
+
+baseCommand: ["python", "/app/__main__.py"]
+
+hints:
+  DockerRequirement:
+    dockerPull: harbor.eucaim.cancerimage.eu/processing-tools/prostate-zone-segmentor:latest
+  ResourceRequirement:
+    coresMin: 4
+    ramMin: 16384
+    outdirMin: 2048
+
+requirements:
+  NetworkAccess:
+    networkAccess: false
+  InlineJavascriptRequirement: {}
+
+inputs:
+  input_directory:
+    type: Directory
+    inputBinding:
+      prefix: --input
+    doc: "Read-only input directory: DICOM series tree (CDM) or flat .nii.gz files."
+    extensionFields:
+      data_type: "bioimage"
+
+  output_directory:
+    type: Directory
+    inputBinding:
+      prefix: --output
+    doc: "Writable output directory (per-case masks + results.json)."
+    extensionFields:
+      data_type: "annotated_bioimage"
+
+  input_format:
+    type:
+      type: enum
+      symbols: ["auto", "dicom", "nifti"]
+    default: "auto"
+    inputBinding:
+      prefix: --input-format
+    doc: "Input layout (default: auto)."
+
+  save_probs:
+    type: boolean
+    default: false
+    inputBinding:
+      prefix: --save-probs
+    doc: "Also emit probability maps (wg_probs/pz_probs/tz_probs)."
+
+  save_dicom_seg:
+    type: boolean
+    default: true
+    inputBinding:
+      prefix: --save-dicom-seg
+    doc: "Emit a multi-segment DICOM-SEG when the input is DICOM."
+
+  device:
+    type:
+      type: enum
+      symbols: ["auto", "cuda", "cpu"]
+    default: "auto"
+    inputBinding:
+      prefix: --device
+    doc: "Inference device."
+
+outputs:
+  results:
+    type: File
+    outputBinding:
+      glob: results.json
+    doc: "Machine-readable index of all cases, statuses and produced files."
+
+  segmentations:
+    type: Directory
+    outputBinding:
+      glob: "*"
+    doc: "Per-case directories with binary masks and (optionally) DICOM-SEG."
+
+stdout: prostate-zone-segmentor.log

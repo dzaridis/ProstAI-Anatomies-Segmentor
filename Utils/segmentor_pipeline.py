@@ -1,70 +1,96 @@
-import os
-from Utils import InputCheck
-from Utils import ImageProcessor
-import torch
-from Utils import helpers, nnUnet_call
-import SimpleITK as sitk
-from MedProIO import Coregistrator
-import numpy as np
-import json
-import warnings
-import multiprocessing
-warnings.filterwarnings('ignore')
-import logging
-nnUNet_raw = os.path.join("nnUnet_paths", "nnUNet_raw")
+"""End-to-end prostate whole-gland + zonal segmentation pipeline."""
 
-def segmentor_pipeline_operation(output_volume:str, pats:dict):
-    segmentor = Segmentor()
-    segmentor.wg_model(pats)
-    segmentor.preparation_zones(input_patients=pats)
-    segmentor.zones_model()
-    segmentor.post_process_zones(output_patient_folder=output_volume, pats=pats)
-    segmentor.saving()
-    segmentor.clean_workspace()
+import logging
+import os
+import warnings
+from typing import Dict, List
+
+import SimpleITK as sitk
+
+from Utils import helpers, nnUnet_call
+
+warnings.filterwarnings("ignore")
+LOGGER = logging.getLogger(__name__)
+
+
+def segmentor_pipeline_operation(
+    pats: Dict[str, sitk.Image],
+    records_by_case: Dict[str, dict],
+    output_dir: str,
+    scratch_dir: str,
+    save_probs: bool = False,
+) -> Dict[str, Dict[str, str]]:
+    """Run the full pipeline for the given cases.
+
+    Returns a {case_id: {output_name: output_path}} dictionary of produced files.
+    """
+    seg = Segmentor(scratch_dir=scratch_dir)
+    seg.wg_model(pats)
+    seg.preparation_zones(pats, records_by_case, output_dir, save_probs)
+    seg.zones_model()
+    seg.post_process_zones(pats, records_by_case, output_dir, save_probs)
+
+    case_paths: Dict[str, Dict[str, str]] = {}
+    for case_id in pats:
+        merged = {}
+        merged.update(seg.wg_paths.get(case_id, {}))
+        merged.update(seg.zone_paths.get(case_id, {}))
+        case_paths[case_id] = merged
+        helpers.fill_wg_with_zones(merged)
+    return case_paths
+
 
 class Segmentor:
-    def __init__(self):
-        self.pats_for_wg_inference = None
-        self.pats_for_wg = None
-        self.wg_dict_original = None
-        self.wg_dict_resampled = None
-        self.pats_for_zones = None
-        self.zones_original = None
-        self.zones_resampled = None
+    def __init__(self, scratch_dir: str):
+        self.scratch_dir = scratch_dir
+        self.pats_for_wg: Dict[str, sitk.Image] = {}
+        self.pats_for_wg_inference: Dict[str, dict] = {}
+        self.pats_for_zones: Dict[str, dict] = {}
+        self.wg_paths: Dict[str, Dict[str, str]] = {}
+        self.zone_paths: Dict[str, Dict[str, str]] = {}
 
-    @staticmethod
-    def preparation_wg(input_patients:dict):
-        pats_for_wg = helpers.initial_processing(input_patients)
-        return pats_for_wg
-    
-    def wg_model(self, input_patients:dict):
-        self.pats_for_wg = self.preparation_wg(input_patients = input_patients)
-        wg_nn = nnUnet_call.WGNNUnet(input_path="Dataset016_WgSegmentationPNetAndPicai", output_path="OutcomesWG")
+    def wg_model(self, pats: Dict[str, sitk.Image]) -> None:
+        self.pats_for_wg = helpers.initial_processing(pats, self.scratch_dir)
+        wg_nn = nnUnet_call.WGNNUnet(
+            input_path="Dataset016_WgSegmentationPNetAndPicai",
+            output_path="OutcomesWG",
+        )
         wg_nn.prediction()
         self.pats_for_wg_inference = wg_nn.return_paths(pats_for_wg=self.pats_for_wg)
 
-    def preparation_zones(self, input_patients:dict):
-        file_handling = helpers.ImageProcessorClass(base_output_path='Outputs', nnUNet_raw = nnUNet_raw)
-        file_handling.process_images(self.pats_for_wg_inference, self.pats_for_wg, pats=input_patients)
-        self.wg_dict_original, self.wg_dict_resampled = file_handling.get_paths()
+    def preparation_zones(
+        self,
+        pats: Dict[str, sitk.Image],
+        records_by_case: Dict[str, dict],
+        output_dir: str,
+        save_probs: bool,
+    ) -> None:
+        proc = helpers.ImageProcessorClass(scratch_dir=self.scratch_dir)
+        proc.process_images(
+            self.pats_for_wg_inference,
+            self.pats_for_wg,
+            pats,
+            records_by_case,
+            output_dir,
+            save_probs,
+        )
+        self.wg_paths = proc.get_paths()
 
-    def zones_model(self):
-        zones_nn = nnUnet_call.ZonesNNUnet(input_path="Dataset019_ProstateZonesSegmentationWgFilteredLessDilated", output_path="OutcomesZones")
+    def zones_model(self) -> None:
+        zones_nn = nnUnet_call.ZonesNNUnet(
+            input_path="Dataset019_ProstateZonesSegmentationWgFilteredLessDilated",
+            output_path="OutcomesZones",
+        )
         zones_nn.prediction()
         self.pats_for_zones = zones_nn.return_paths(pats_for_wg_inference=self.pats_for_wg_inference)
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    
-    def post_process_zones(self, output_patient_folder:str, pats:dict):
-        zone_handling = helpers.ZoneProcessor(output_patient_folder)
-        zone_handling.process_zones(self.pats_for_zones, pats)
-        self.zones_original, self.zones_resampled = zone_handling.get_paths()
-    
-    def saving(self):
-        helpers.outputs_saving(self.wg_dict_original, self.zones_original, self.wg_dict_resampled, self.zones_resampled)
 
-    def clean_workspace(self):
-        renduntant = helpers.DeleteRedundantfiles()
-        renduntant.clean_workspace_wg(self.pats_for_wg_inference)
-        renduntant.clean_workspace_zones(self.pats_for_zones)
-        renduntant.clean_patients_directory(os.path.join(nnUNet_raw, os.path.join("Dataset016_WgSegmentationPNetAndPicai", "ImagesTs")),
-                                            os.path.join(nnUNet_raw, os.path.join("Dataset019_ProstateZonesSegmentationWgFilteredLessDilated", "ImagesTs")))
+    def post_process_zones(
+        self,
+        pats: Dict[str, sitk.Image],
+        records_by_case: Dict[str, dict],
+        output_dir: str,
+        save_probs: bool,
+    ) -> None:
+        proc = helpers.ZoneProcessor()
+        proc.process_zones(self.pats_for_zones, pats, records_by_case, output_dir, save_probs)
+        self.zone_paths = proc.get_paths()

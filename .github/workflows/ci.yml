@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "release*"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & smoke-test (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free up runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL "$AGENT_TOOLSDIRECTORY"
+          docker image prune -af
+          df -h
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (with GHA cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: prostate-zone-segmentor:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test — CLI help
+        run: docker run --rm prostate-zone-segmentor:ci --help
+
+      - name: Smoke test — heavy imports
+        run: |
+          docker run --rm --entrypoint python prostate-zone-segmentor:ci -c \
+            "from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor; \
+             import skimage.transform, pandas, SimpleITK, torch, blosc2, six, packaging; \
+             print('imports ok')"
+
+      - name: Inference test — NIfTI sample (CPU)
+        timeout-minutes: 30
+        run: |
+          mkdir -p ci_input ci_output
+          cp examples/nifti/*.nii.gz ci_input/
+          docker run --rm \
+            -v "${PWD}/ci_input:/input:ro" \
+            -v "${PWD}/ci_output:/output" \
+            prostate-zone-segmentor:ci \
+              --input /input --output /output \
+              --input-format nifti --device cpu --log-level INFO
+
+      - name: Validate outputs
+        run: |
+          set -e
+          test -f ci_output/results.json
+          echo "--- results.json ---"
+          cat ci_output/results.json
+          echo "--- output tree ---"
+          find ci_output -type f | sort
+          # Each successful case must have the three binary masks.
+          python - <<'PY'
+          import json, sys, pathlib
+          data = json.loads(pathlib.Path("ci_output/results.json").read_text())
+          assert data["cases"], "no cases recorded"
+          for c in data["cases"]:
+              assert c["status"] == "ok", f"case {c['case_id']} failed: {c.get('error')}"
+              for mask in ("wg_binary", "pz_binary", "tz_binary"):
+                  assert mask in c["outputs"], f"missing {mask} for {c['case_id']}"
+                  assert (pathlib.Path("ci_output") / c["outputs"][mask]).is_file()
+          print(f"OK — {len(data['cases'])} case(s) validated.")
+          PY
+
+      - name: Upload outputs as artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-segmentations
+          path: ci_output/
+          retention-days: 7
