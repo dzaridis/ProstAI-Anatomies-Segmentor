@@ -1,8 +1,0 @@
-ignored:
-  - DL3008  # apt-get pinned versions (we rely on Ubuntu 20.04 LTS pins)
-  - DL3013  # pip versions are pinned via requirements.txt
-  - DL3015  # we already use --no-install-recommends where it matters
-trustedRegistries:
-  - docker.io
-  - nvcr.io
-  - harbor.eucaim.cancerimage.eu

@@ -172,3 +172,10 @@ test_output_dcm_all/
 ci_input/
 ci_output/
 .claude/
+
+# Local-only documentation and reference files (kept on disk, not in git)
+.gitlab-ci.yml
+.hadolint.yml
+EUCAIM HARBOR.md
+EUCAIM Software Packaging Guide v*.pdf
+LOCAL_TESTING_WINDOWS_CPU.md
