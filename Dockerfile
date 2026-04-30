@@ -33,13 +33,13 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 FROM nvcr.io/nvidia/cuda:11.7.0-cudnn8-runtime-ubuntu20.04
 
 LABEL name="prostate-zone-segmentor" \
-      version="2.0.0" \
-      description="Prostate whole-gland and zonal (PZ/TZ) segmentation from T2-weighted MRI using cascaded nnU-Net v2." \
+      version="2.1.0" \
+      description="Prostate whole-gland, zonal (PZ/TZ) and lesion segmentation from prostate MRI using cascaded nnU-Net v2 + ProLesA-Net." \
       maintainer="Dimitrios Zaridis <dimzaridis@gmail.com>" \
       authorization="This Dockerfile is intended to build a container image that will be publicly accessible in the EUCAIM images repository." \
       image.source="https://github.com/dzaridis/ProstAI-Anatomies-Segmentor" \
       image.revision="main" \
-      image.version="2.0.0"
+      image.version="2.1.0"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -77,6 +77,7 @@ COPY __main__.py /app/__main__.py
 COPY healthcheck.py /app/healthcheck.py
 
 COPY nnUnet_paths/nnUNet_results /opt/models/nnUNet_results
+COPY Lesion_weights /opt/models/lesion
 
 RUN mkdir -p ${WORK_DIR} && \
     chown -R root:eucaim /app /opt/models /opt/venv ${WORK_DIR} && \

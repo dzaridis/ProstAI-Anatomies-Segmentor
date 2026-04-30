@@ -66,11 +66,13 @@ def auto_seg_reader(seg_directory:Path)->Dict[str,np.ndarray]:
     wg_path = os.path.join( seg_directory, "wg_binary.nii.gz")
     pz_path = os.path.join( seg_directory, "pz_binary.nii.gz")
     tz_path = os.path.join( seg_directory, "tz_binary.nii.gz")
+    lesion_path = os.path.join( seg_directory, "lesion_binary.nii.gz")
 
     segments_dict = {
         "wg": {"array":_safe_read_seg(wg_path)},
         "pz": {"array":_safe_read_seg(pz_path)},
-        "tz": {"array":_safe_read_seg(tz_path)}
+        "tz": {"array":_safe_read_seg(tz_path)},
+        "lesion": {"array":_safe_read_seg(lesion_path)},
     }
     segments_dict = {
         key:value 
@@ -115,6 +117,12 @@ def clear_overlapping(seg_dict:Dict[str,dict])->dict:
 
     if 'tz' in seg_dict:
         seg_dict['tz']['no_overlap'] = deepcopy(seg_dict['tz']['array'] )
+
+    # Lesions are nested inside the prostate by definition; we do not subtract
+    # WG/PZ/TZ from them, but we still need a `no_overlap` view because
+    # `clean_zero_slices` reads that key for every segment.
+    if 'lesion' in seg_dict:
+        seg_dict['lesion']['no_overlap'] = deepcopy(seg_dict['lesion']['array'])
 
     return seg_dict
 
@@ -239,6 +247,12 @@ def structures_dictionary(segmentation_type:str,seg_counter:int)->Sequence:
             "code":'T-D0823',
             "meaning":"Prostate transition zone",
             "color": [58366, 30737, 53006] # Random picks
+            },
+        "lesion" : {
+            "description":"Prostate lesion (ProLesA-Net)",
+            "code":"M-80003",
+            "meaning":"Neoplasm",
+            "color": [56535, 33981, 25700] # Random picks
             }
     }
 
@@ -521,6 +535,11 @@ def nifti2dicomseg(seg_dir_path:Path, t2_path:Path, output_path:Path=None, singl
         seg_ds.SeriesNumber = '103'
         seg_ds.InstanceNumber = '203'
         seg_ds.SeriesDescription = "Prostate Transition Zone"
+
+    if single_seg == "lesion":
+        seg_ds.SeriesNumber = '104'
+        seg_ds.InstanceNumber = '204'
+        seg_ds.SeriesDescription = "Prostate Lesion (ProLesA-Net)"
 
     seg_ds.ReferencedSeriesSequence = reference_image_sop(t2_dataset)
     seg_ds = dim_organization_sequence(seg_ds)

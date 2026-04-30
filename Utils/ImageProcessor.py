@@ -1,6 +1,7 @@
 from MedProIO import Resampler
 from MedProIO import CropAndPad
 from MedProIO import Coregistrator
+from MedProIO import Alignment
 import SimpleITK as sitk
 
 
@@ -17,6 +18,14 @@ def ImageProcessing(sitk_image, spacing = (0.5, 0.5, 3.0), target_size = (256, 2
     res.execute_processing()
     tr = res.get_transformed_image()
     return tr
+
+def align_sequences(fix, mov):
+    res = Alignment.AlignmentRegistration()
+    res.set_reference_image(fix)
+    res.set_moving_image(mov)
+    res.execute_processing()
+    return res.get_transformed_image()
+
 
 def resample(fix,mov):
     res = Coregistrator.SequenceResampler()

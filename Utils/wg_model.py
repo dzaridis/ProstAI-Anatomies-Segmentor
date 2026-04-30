@@ -35,6 +35,30 @@ class ZScoreNormalizer(ImagePreprocessor):
         normalized_image = sitk.ShiftScale(image, -mean, 1 / std if std > 0 else 1)
         return normalized_image
 
+
+class MinMaxNormalizer(ImagePreprocessor):
+    """[0, 1] normalisation used by the ProLesA-Net lesion model."""
+
+    def normalize(self, image: sitk.Image) -> sitk.Image:
+        original_image = image
+        try:
+            image = self.convert_to_float(image)
+        except ValueError:
+            image = original_image
+
+        stats = sitk.StatisticsImageFilter()
+        stats.Execute(image)
+        lo = stats.GetMinimum()
+        hi = stats.GetMaximum()
+        rng = hi - lo
+
+        if rng > 0:
+            return (image - lo) / rng
+
+        out = sitk.Image(image.GetSize(), sitk.sitkFloat32)
+        out.CopyInformation(image)
+        return out
+
 class ThresholdMaskFlattener:
     def __init__(self, threshold=0.5):
         self.threshold = threshold

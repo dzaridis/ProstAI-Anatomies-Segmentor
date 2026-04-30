@@ -1,9 +1,9 @@
-"""End-to-end prostate whole-gland + zonal segmentation pipeline."""
+"""End-to-end prostate whole-gland + zonal + lesion segmentation pipeline."""
 
 import logging
 import os
 import warnings
-from typing import Dict, List
+from typing import Dict
 
 import SimpleITK as sitk
 
@@ -19,6 +19,8 @@ def segmentor_pipeline_operation(
     output_dir: str,
     scratch_dir: str,
     save_probs: bool = False,
+    save_lesion: bool = True,
+    lesion_threshold: float = 0.1,
 ) -> Dict[str, Dict[str, str]]:
     """Run the full pipeline for the given cases.
 
@@ -37,7 +39,78 @@ def segmentor_pipeline_operation(
         merged.update(seg.zone_paths.get(case_id, {}))
         case_paths[case_id] = merged
         helpers.fill_wg_with_zones(merged)
+
+    if save_lesion:
+        lesion_paths = run_lesion_stage(
+            pats=pats,
+            records_by_case=records_by_case,
+            case_paths=case_paths,
+            output_dir=output_dir,
+            save_probs=save_probs,
+            threshold=lesion_threshold,
+        )
+        for case_id, paths in lesion_paths.items():
+            case_paths.setdefault(case_id, {}).update(paths)
+
     return case_paths
+
+
+def run_lesion_stage(
+    pats: Dict[str, sitk.Image],
+    records_by_case: Dict[str, dict],
+    case_paths: Dict[str, Dict[str, str]],
+    output_dir: str,
+    save_probs: bool,
+    threshold: float,
+) -> Dict[str, Dict[str, str]]:
+    """Apply the ProLesA-Net lesion model to every case that has ADC + DWI."""
+    from Utils.lesion_model import LesionSegmentor, lesion_available
+
+    eligible = [cid for cid, rec in records_by_case.items() if lesion_available(rec)]
+    if not eligible:
+        LOGGER.info("Lesion stage skipped: no case has both ADC and DWI sequences.")
+        return {}
+
+    LOGGER.info("Running ProLesA-Net lesion stage on %d case(s).", len(eligible))
+    lesion = LesionSegmentor(threshold=threshold)
+    out: Dict[str, Dict[str, str]] = {}
+
+    for case_id in eligible:
+        rec = records_by_case[case_id]
+        wg_path = case_paths.get(case_id, {}).get("wg_binary")
+        if not wg_path or not os.path.isfile(wg_path):
+            LOGGER.warning("Lesion skipped for %s: missing WG mask.", case_id)
+            continue
+        try:
+            adc = sitk.ReadImage(rec["adc_path"])
+            dwi = sitk.ReadImage(rec["dwi_path"])
+            wg_binary = sitk.ReadImage(wg_path)
+
+            binary_img, probs_img = lesion.predict(
+                t2=pats[case_id], adc=adc, dwi=dwi, wg_binary=wg_binary,
+            )
+
+            binary_resampled = sitk.Resample(
+                binary_img, pats[case_id], sitk.Transform(), sitk.sitkNearestNeighbor
+            )
+            case_out = helpers.case_output_dir(output_dir, rec["subject_id"], rec["study_id"])
+            lesion_path = os.path.join(case_out, "lesion_binary.nii.gz")
+            sitk.WriteImage(binary_resampled, lesion_path)
+            paths = {"lesion_binary": lesion_path}
+
+            if save_probs:
+                probs_resampled = sitk.Resample(
+                    probs_img, pats[case_id], sitk.Transform(), sitk.sitkLinear
+                )
+                probs_path = os.path.join(case_out, "lesion_probs.nii.gz")
+                sitk.WriteImage(probs_resampled, probs_path)
+                paths["lesion_probs"] = probs_path
+
+            out[case_id] = paths
+        except Exception as exc:
+            LOGGER.error("Lesion segmentation failed for %s: %s", case_id, exc)
+
+    return out
 
 
 class Segmentor:

@@ -1,13 +1,15 @@
 """ProstAI Anatomies Segmentor — EUCAIM tool entrypoint.
 
-Whole-gland (WG), peripheral-zone (PZ) and transition-zone (TZ) segmentation
-from T2-weighted prostate MRI, using two cascaded nnU-Net v2 models.
+Whole-gland (WG), peripheral-zone (PZ), transition-zone (TZ) and (optional)
+lesion segmentation from prostate MRI: cascaded nnU-Net v2 for the anatomies
+on T2, plus the ProLesA-Net (T2 + ADC + DWI) for lesions when those auxiliary
+sequences are present.
 
 Usage:
     docker run --rm --gpus all \\
         -v /path/to/input:/input:ro \\
         -v /path/to/output:/output \\
-        harbor.eucaim.cancerimage.eu/processing-tools/prostate-zone-segmentor:<tag> \\
+        harbor.eucaim.cancerimage.eu/processing-tools/prostate-anatomies-and-lesion-segmentor:<tag> \\
         --input /input --output /output
 
 Run `--help` for the full flag reference.
@@ -24,8 +26,9 @@ from typing import Dict
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="prostate-zone-segmentor",
-        description="Prostate whole-gland and zonal segmentation from T2-weighted MRI.",
+        prog="prostate-anatomies-and-lesion-segmentor",
+        description="Prostate whole-gland, zonal and lesion segmentation from prostate MRI "
+                    "(T2 + optional ADC + DWI).",
     )
     p.add_argument("--input", "-i", required=True,
                    help="Path to read-only input directory (DICOM series tree or .nii.gz files).")
@@ -34,13 +37,21 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--input-format", choices=("auto", "dicom", "nifti"), default="auto",
                    help="Input layout (default: auto).")
     p.add_argument("--save-probs", action="store_true",
-                   help="Also write probability maps (wg_probs/pz_probs/tz_probs).")
+                   help="Also write probability maps (wg/pz/tz/lesion).")
     seg_group = p.add_mutually_exclusive_group()
     seg_group.add_argument("--save-dicom-seg", dest="save_dicom_seg", action="store_true",
                            help="Emit a multi-segment DICOM-SEG when input is DICOM (default).")
     seg_group.add_argument("--no-save-dicom-seg", dest="save_dicom_seg", action="store_false",
                            help="Skip DICOM-SEG export even when input is DICOM.")
     p.set_defaults(save_dicom_seg=True)
+    lesion_group = p.add_mutually_exclusive_group()
+    lesion_group.add_argument("--save-lesion", dest="save_lesion", action="store_true",
+                              help="Run the ProLesA-Net lesion model (default; needs ADC+DWI).")
+    lesion_group.add_argument("--no-save-lesion", dest="save_lesion", action="store_false",
+                              help="Skip the lesion stage even if ADC+DWI are available.")
+    p.set_defaults(save_lesion=True)
+    p.add_argument("--lesion-threshold", type=float, default=0.1,
+                   help="Probability threshold for the lesion mask (default: 0.1).")
     p.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto",
                    help="Inference device (default: auto-detect CUDA).")
     p.add_argument("--log-level", default="INFO",
@@ -81,11 +92,15 @@ def main(argv=None) -> int:
     _install_signal_handlers()
     _force_device(args.device)
 
-    log = logging.getLogger("prostate-zone-segmentor")
+    log = logging.getLogger("prostate-anatomies-and-lesion-segmentor")
     log.info("Input:  %s", args.input)
     log.info("Output: %s", args.output)
-    log.info("Format: %s | save_probs=%s | save_dicom_seg=%s | device=%s",
-             args.input_format, args.save_probs, args.save_dicom_seg, args.device)
+    log.info(
+        "Format: %s | save_probs=%s | save_dicom_seg=%s | save_lesion=%s | "
+        "lesion_threshold=%s | device=%s",
+        args.input_format, args.save_probs, args.save_dicom_seg,
+        args.save_lesion, args.lesion_threshold, args.device,
+    )
 
     if not os.path.isdir(args.input):
         log.error("Input directory does not exist: %s", args.input)
@@ -119,6 +134,8 @@ def main(argv=None) -> int:
             output_dir=args.output,
             scratch_dir=scratch_root,
             save_probs=args.save_probs,
+            save_lesion=args.save_lesion,
+            lesion_threshold=args.lesion_threshold,
         )
 
         if args.save_dicom_seg:

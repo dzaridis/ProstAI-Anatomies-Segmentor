@@ -14,6 +14,8 @@ notebooks
 demoruns_delete.ipynb
 toxarri.rar
 toxarri
+examples/Prostate Anatomies and Lesion Segmentor.mp4
+examples/VideoImages
 
 # C extensions
 *.so
@@ -179,3 +181,7 @@ ci_output/
 EUCAIM HARBOR.md
 EUCAIM Software Packaging Guide v*.pdf
 LOCAL_TESTING_WINDOWS_CPU.md
+
+# Standalone Prolesa source repo (we ship the lesion model integrated, not the standalone container)
+Prolesa/
+Exampledocs/

@@ -2,7 +2,9 @@
 
 Outputs per case (under <output_dir>/<subject_id>/<study_id>/):
     wg_binary.nii.gz, pz_binary.nii.gz, tz_binary.nii.gz
+    lesion_binary.nii.gz                                  (only if ADC+DWI present)
     wg_probs.nii.gz,  pz_probs.nii.gz,  tz_probs.nii.gz   (only if --save-probs)
+    lesion_probs.nii.gz                                   (only if --save-probs)
     prostate_zones_seg.dcm                                (only if input was DICOM)
 
 Plus a single <output_dir>/results.json index of all cases.
@@ -25,6 +27,11 @@ def _case_output_dir(output_dir: str, subject_id: str, study_id: str) -> str:
     path = os.path.join(output_dir, subject_id, study_id)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def case_output_dir(output_dir: str, subject_id: str, study_id: str) -> str:
+    """Public wrapper for `_case_output_dir`, used by the lesion stage."""
+    return _case_output_dir(output_dir, subject_id, study_id)
 
 
 def initial_processing(pats: dict, scratch_dir: str) -> dict:
